@@ -1,0 +1,19 @@
+*.venv
+
+*artifacts*
+*private_config*
+
+__pycache__
+*.pyc
+
+# PyInstaller artifacts
+*.spec
+build/
+dist/
+
+# keil_decrypt build artifacts
+build/
+dist/
+*.spec
+__pycache__/
+webui-vue/node_modules/
