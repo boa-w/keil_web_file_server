@@ -7,6 +7,7 @@
 - 后端：`FastAPI`（`keil_web_file_server.py`）
 - 前端：`Vue 3 + Vite + vue-router`（`webui-vue/`，路由级独立页面）
 - 构建：`PyInstaller` 单文件 exe（打包 Vue `dist` 静态资源）
+- CI：GitHub Actions 自动构建 Windows EXE 并上传产物
 
 ## 功能
 
@@ -24,9 +25,9 @@
 
 - `keil_web_file_server.py`: FastAPI 服务
 - `webui-vue/`: Vue + Vite 前端工程
-- `build_frontend.bat`: 前端构建脚本
 - `requirements-build.txt`: Python 构建依赖
-- `build_exe.bat`: EXE 构建脚本
+- `build_exe.bat`: 本地一键构建脚本（前端 + EXE）
+- `.github/workflows/build-exe.yml`: Windows 自动构建流程
 - `dist/keil_web_file_server.exe`: 输出文件
 
 ## 前端开发
@@ -58,26 +59,31 @@ python keil_web_file_server.py "D:\\your\\path"
 python keil_web_file_server.py --public --port 8765
 ```
 
-## 使用 `.venv` + `uv` 构建 EXE
+## 本地构建 EXE
 
-先安装 Python 依赖：
+先创建 Python 虚拟环境：
 
 ```bash
 uv venv .venv
-uv pip install --python .venv/Scripts/python.exe -r requirements-build.txt
 ```
 
-再构建前端：
+也可以使用 Python 自带的 `venv`：
 
-```bat
-build_frontend.bat
+```bash
+python -m venv .venv
 ```
 
-最后打包 exe：
+然后运行一键构建脚本（会安装依赖、构建前端并打包 EXE）：
 
 ```bat
 build_exe.bat
 ```
+
+## GitHub Actions 自动构建
+
+推送到 `main` 或 `master`、创建 Pull Request，或在 Actions 页面手动运行
+`Build Windows EXE` workflow 后，会生成名为 `keil-web-file-server-windows` 的构建产物，
+其中包含 `keil_web_file_server.exe`。
 
 ## Keil Tools Menu 示例
 

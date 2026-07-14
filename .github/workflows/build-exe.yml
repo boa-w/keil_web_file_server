@@ -1,0 +1,72 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webui-vue/package-lock.json
+
+      - name: Build frontend
+        working-directory: webui-vue
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+
+      - name: Install Python build dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Build executable
+        run: >-
+          pyinstaller
+          --noconfirm
+          --onefile
+          --name keil_web_file_server
+          --collect-all fastapi
+          --collect-all starlette
+          --collect-all pydantic
+          --collect-all uvicorn
+          --add-data "webui-vue\dist;webui-vue/dist"
+          keil_web_file_server.py
+
+      - name: Verify executable
+        run: .\dist\keil_web_file_server.exe --help
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: keil-web-file-server-windows
+          path: dist/keil_web_file_server.exe
+          if-no-files-found: error
+          retention-days: 14
