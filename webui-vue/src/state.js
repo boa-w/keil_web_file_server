@@ -12,6 +12,7 @@ export const previewMime = ref('')
 export const previewEncoding = ref('')
 export const previewSize = ref('')
 export const previewUrl = ref('')
+export const vscodeOpeningPath = ref('')
 
 export const debugText = ref('点击“刷新调试信息”查看运行上下文差异...')
 export const debugIncludeAllEnv = ref(false)
@@ -97,6 +98,29 @@ export async function loadPreview(path) {
   previewUrl.value = ''
   previewText.value = data.content || ''
   return true
+}
+
+export async function openInVSCode(path) {
+  if (vscodeOpeningPath.value) return false
+  vscodeOpeningPath.value = path
+  try {
+    const res = await fetch('/api/open-in-vscode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+    const data = await res.json()
+    if (!data.ok) {
+      alert(`无法在 VS Code 中打开: ${data.error ?? '未知错误'}`)
+      return false
+    }
+    return true
+  } catch (error) {
+    alert(`无法在 VS Code 中打开: ${error instanceof Error ? error.message : '请求失败'}`)
+    return false
+  } finally {
+    vscodeOpeningPath.value = ''
+  }
 }
 
 export async function createZipTask(path) {

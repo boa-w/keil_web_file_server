@@ -53,6 +53,11 @@
               </template>
               <template v-else>
                 <button class="mini" @click="openPreview(item.rel)">预览</button>
+                <button
+                  class="mini ghost"
+                  :disabled="Boolean(vscodeOpeningPath)"
+                  @click="openInVSCode(item.rel)"
+                >{{ vscodeOpeningPath === item.rel ? '正在打开...' : 'VS Code' }}</button>
                 <a :href="`/api/download?path=${encodeURIComponent(item.rel)}`" target="_blank">下载</a>
               </template>
             </td>
@@ -84,6 +89,8 @@ import {
   list,
   setRoot,
   createZipTask,
+  vscodeOpeningPath,
+  openInVSCode,
 } from '../state'
 
 const router = useRouter()

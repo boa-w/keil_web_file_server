@@ -91,13 +91,21 @@ build_exe.bat
 
 - Menu Text: `Web File Server`
 - Command: `D:\\...\\dist\\keil_web_file_server.exe`
-- Arguments: `"$P" --open`
+- Arguments: `"$P." --open --detach`
 - Initial Folder: `$P`
+
+`--detach` 会让 Keil 直接启动的引导进程派生后台 Worker 后立即退出，因此关闭
+Keil 时不会继续等待 Web 服务。后台日志位于
+`%LOCALAPPDATA%\KeilWebFileServer\server.log`。
+
+`$P` 通常以反斜杠结尾，写成 `"$P."` 可以避免 Windows 把路径后的右引号
+与 `--open --detach` 合并为同一个参数。
 
 ## 参数
 
 - `root`：初始根目录，默认当前目录
 - `--open`：启动后自动打开浏览器
+- `--detach`：派生 Windows 后台 Worker 后立即返回，避免 Keil 等待服务进程
 - `--port 8765`：指定端口
 - `--public`：等价于 `--host 0.0.0.0`
 
@@ -136,3 +144,4 @@ curl "http://127.0.0.1:8765/api/debug/report?include_all_env=true&modules_limit=
 - `GET /api/debug/process-tree`：父进程链
 - `GET /api/debug/modules?limit=400&keyword=keil`：模块列表
 - `GET /api/debug/file-probe?path=相对路径&head=128&tail=128&hash_mode=sample|full`：文件探针（首尾字节+SHA256）
+- `POST /api/open-in-vscode`：在服务器本机的 VS Code 中打开文件，请求体为 `{ "path": "相对路径" }`；仅接受本机请求

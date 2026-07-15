@@ -3,6 +3,11 @@
     <div class="topbar compact">
       <span class="meta-inline">文件: {{ previewPath || '未选择' }}</span>
       <button @click="reloadByRoute">刷新预览</button>
+      <button
+        class="ghost"
+        :disabled="!previewPath || Boolean(vscodeOpeningPath)"
+        @click="openInVSCode(previewPath)"
+      >{{ vscodeOpeningPath ? '正在打开...' : '在 VS Code 中打开' }}</button>
       <router-link class="link-btn" to="/browser">返回浏览</router-link>
     </div>
 
@@ -29,6 +34,8 @@ import {
   previewSize,
   previewUrl,
   loadPreview,
+  vscodeOpeningPath,
+  openInVSCode,
 } from '../state'
 
 const route = useRoute()

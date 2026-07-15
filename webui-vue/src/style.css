@@ -61,6 +61,10 @@ button.ghost {
   background: #fff;
   color: var(--brand);
 }
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .link-btn {
   display: inline-block;
   border: 1px solid var(--brand);

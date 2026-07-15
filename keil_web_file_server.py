@@ -9,7 +9,9 @@ import mimetypes
 import os
 import platform
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -24,7 +26,7 @@ from collections import deque
 
 try:
     import uvicorn
-    from fastapi import FastAPI, HTTPException, Query
+    from fastapi import FastAPI, HTTPException, Query, Request
     from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
@@ -67,6 +69,10 @@ class RootState:
             self._root = root
 
 
+class OpenFileRequest(BaseModel):
+    path: str
+
+
 def clean_relpath(value: str) -> str:
     return value.replace("\\", "/").strip("/")
 
@@ -95,6 +101,62 @@ def content_disposition(filename: str) -> str:
     ascii_fallback = re.sub(r"[^A-Za-z0-9._-]", "_", filename) or "download"
     encoded = urllib.parse.quote(filename, safe="")
     return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+
+
+def find_vscode_executable() -> Path | None:
+    names = ("code", "code-insiders")
+    for name in names:
+        cli = shutil.which(name)
+        if not cli:
+            continue
+        cli_path = Path(cli)
+        if os.name == "nt" and cli_path.suffix.lower() in (".cmd", ".bat"):
+            exe_name = "Code - Insiders.exe" if name == "code-insiders" else "Code.exe"
+            app_exe = cli_path.parent.parent / exe_name
+            if app_exe.is_file():
+                return app_exe
+        return cli_path
+
+    if os.name == "nt":
+        roots = [
+            os.environ.get("LOCALAPPDATA"),
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+        ]
+        relative_paths = (
+            Path("Programs/Microsoft VS Code/Code.exe"),
+            Path("Programs/Microsoft VS Code Insiders/Code - Insiders.exe"),
+            Path("Microsoft VS Code/Code.exe"),
+            Path("Microsoft VS Code Insiders/Code - Insiders.exe"),
+        )
+        for root in filter(None, roots):
+            for relative_path in relative_paths:
+                candidate = Path(root) / relative_path
+                if candidate.is_file():
+                    return candidate
+    return None
+
+
+def launch_in_vscode(target: Path) -> tuple[bool, str]:
+    executable = find_vscode_executable()
+    if executable is None:
+        return False, "VS Code not found; install it or add the code command to PATH"
+
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    try:
+        subprocess.Popen([str(executable), "--goto", str(target)], **kwargs)
+    except OSError as exc:
+        return False, f"failed to start VS Code: {exc}"
+    return True, str(executable)
 
 
 def build_hex_preview(data: bytes, width: int = 16) -> str:
@@ -151,6 +213,67 @@ def guess_lan_ip() -> str | None:
         return None
     finally:
         sock.close()
+
+
+def start_detached_worker(args: argparse.Namespace, root: Path) -> int:
+    if os.name != "nt":
+        print("[ERROR] --detach is currently supported on Windows only")
+        return 2
+
+    if getattr(sys, "frozen", False):
+        command = [sys.executable]
+    else:
+        command = [sys.executable, str(Path(__file__).resolve())]
+
+    command.extend(
+        [
+            str(root),
+            "--host",
+            "0.0.0.0" if args.public else args.host,
+            "--port",
+            str(args.port),
+            "--background-worker",
+        ]
+    )
+    if args.open:
+        command.append("--open")
+
+    log_dir = Path(
+        os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
+    ) / "KeilWebFileServer"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "server.log"
+
+    child_env = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        # A new one-file instance needs its own extraction directory after the
+        # short-lived launcher process exits.
+        child_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
+    creation_flags = (
+        subprocess.DETACHED_PROCESS
+        | subprocess.CREATE_NEW_PROCESS_GROUP
+        | subprocess.CREATE_NO_WINDOW
+    )
+    try:
+        with log_path.open("ab") as log_file:
+            worker = subprocess.Popen(
+                command,
+                cwd=str(root),
+                env=child_env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+                creationflags=creation_flags,
+            )
+    except OSError as exc:
+        print(f"[ERROR] Failed to start background worker: {exc}")
+        return 1
+
+    print(f"[OK] Background worker started, PID: {worker.pid}")
+    print(f"[OK] Log: {log_path}")
+    return 0
 
 
 def get_process_tree() -> dict:
@@ -726,6 +849,35 @@ def create_app(initial_root: Path) -> FastAPI:
 
         return StreamingResponse(iter_file(), media_type=media_type, headers=headers)
 
+    @app.post("/api/open-in-vscode")
+    def api_open_in_vscode(body: OpenFileRequest, request: Request) -> JSONResponse:
+        client_host = request.client.host if request.client else ""
+        if client_host not in ("127.0.0.1", "::1"):
+            return JSONResponse(
+                {"ok": False, "error": "opening local applications is only allowed from this computer"},
+                status_code=403,
+            )
+
+        root_dir = root_state.get()
+        target = safe_target(root_dir, body.path)
+        if not target.exists() or not target.is_file():
+            access_log.add("open-in-vscode", body.path, target, ok=False)
+            return JSONResponse(
+                {"ok": False, "error": "file not found"}, status_code=404
+            )
+
+        ok, detail = launch_in_vscode(target)
+        access_log.add("open-in-vscode", body.path, target, ok=ok)
+        if not ok:
+            return JSONResponse({"ok": False, "error": detail}, status_code=503)
+        return JSONResponse(
+            {
+                "ok": True,
+                "path": clean_relpath(str(target.relative_to(root_dir))),
+                "editor": detail,
+            }
+        )
+
     @app.get("/api/download-folder")
     def api_download_folder(path: str = Query(default="")) -> StreamingResponse:
         root_dir = root_state.get()
@@ -966,7 +1118,21 @@ def create_app(initial_root: Path) -> FastAPI:
     return app
 
 
-def parse_args() -> argparse.Namespace:
+def recover_merged_windows_args(argv: list[str]) -> list[str]:
+    if os.name != "nt" or not argv or Path(argv[0]).exists():
+        return argv
+
+    # A trailing backslash before a closing quote can make Windows merge Keil's
+    # $P path and the following boolean flags into one argument.
+    match = re.fullmatch(
+        r'(.+)"\s+((?:--(?:open|detach|public)(?:\s+|$))+)', argv[0]
+    )
+    if not match:
+        return argv
+    return [match.group(1), *match.group(2).split(), *argv[1:]]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Keil web file explorer")
     parser.add_argument(
         "root",
@@ -984,7 +1150,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--open", action="store_true", help="Open browser automatically"
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Start a detached background worker and return immediately (Windows)",
+    )
+    parser.add_argument(
+        "--background-worker", action="store_true", help=argparse.SUPPRESS
+    )
+    raw_args = sys.argv[1:] if argv is None else argv
+    return parser.parse_args(recover_merged_windows_args(raw_args))
 
 
 def main() -> int:
@@ -995,6 +1170,10 @@ def main() -> int:
     if not root.exists() or not root.is_dir():
         print(f"[ERROR] Invalid root directory: {root}")
         return 2
+
+
+    if args.detach:
+        return start_detached_worker(args, root)
 
     host = "0.0.0.0" if args.public else args.host
     local_url = f"http://127.0.0.1:{args.port}/"
