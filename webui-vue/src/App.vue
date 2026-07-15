@@ -1,7 +1,10 @@
 <template>
   <main class="layout">
     <section class="card">
-      <h1>File Manager</h1>
+      <div class="app-heading">
+        <h1>File Manager</h1>
+        <span v-if="appVersion" class="version-badge">v{{ appVersion }}</span>
+      </div>
       <p class="meta">根目录: {{ root }}</p>
 
       <nav class="topbar nav-bar">
@@ -17,5 +20,8 @@
 </template>
 
 <script setup>
-import { root } from './state'
+import { onMounted } from 'vue'
+import { appVersion, loadVersion, root } from './state'
+
+onMounted(loadVersion)
 </script>

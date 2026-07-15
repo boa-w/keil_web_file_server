@@ -4,6 +4,7 @@ export const root = ref('')
 export const rootInput = ref('')
 export const current = ref('')
 export const items = ref([])
+export const appVersion = ref('')
 
 export const previewPath = ref('')
 export const previewText = ref('点击文件名预览文本内容...')
@@ -26,6 +27,16 @@ export const totalPages = ref(1)
 export const sort = ref('name_asc')
 
 export const tasks = ref([])
+
+export async function loadVersion() {
+  try {
+    const res = await fetch('/api/version')
+    const data = await res.json()
+    if (data.ok) appVersion.value = data.version || ''
+  } catch {
+    appVersion.value = ''
+  }
+}
 
 export async function list(path = current.value || '', forceFirstPage = false) {
   if (forceFirstPage) page.value = 1

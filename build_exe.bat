@@ -42,8 +42,12 @@ if exist "%WORK_TMP%" (
 mkdir "%WORK_TMP%"
 if errorlevel 1 goto :fail
 
+echo [INFO] Preparing build version...
+".venv\Scripts\python.exe" scripts\write_build_commit.py "%WORK_TMP%\BUILD_COMMIT"
+if errorlevel 1 goto :fail
+
 echo [INFO] Building EXE with .venv Python ...
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --onefile --name keil_web_file_server --distpath "%~dp0dist" --workpath "%WORK_TMP%" --specpath "%WORK_TMP%" --collect-all fastapi --collect-all starlette --collect-all pydantic --collect-all uvicorn --add-data "%~dp0webui-vue\dist;webui-vue/dist" keil_web_file_server.py
+".venv\Scripts\python.exe" -m PyInstaller --noconfirm --onefile --name keil_web_file_server --distpath "%~dp0dist" --workpath "%WORK_TMP%" --specpath "%WORK_TMP%" --collect-all fastapi --collect-all starlette --collect-all pydantic --collect-all uvicorn --add-data "%~dp0webui-vue\dist;webui-vue/dist" --add-data "%~dp0VERSION;." --add-data "%WORK_TMP%\BUILD_COMMIT;." keil_web_file_server.py
 if errorlevel 1 goto :fail
 
 rmdir /S /Q "%WORK_TMP%" >nul 2>nul

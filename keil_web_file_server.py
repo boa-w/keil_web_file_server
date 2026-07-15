@@ -58,6 +58,52 @@ WEBUI_VUE_DIST_DIR = BASE_DIR / "webui-vue" / "dist"
 WEBUI_VUE_ASSETS_DIR = WEBUI_VUE_DIST_DIR / "assets"
 
 
+def read_manual_version() -> str:
+    try:
+        version = (BASE_DIR / "VERSION").read_text(encoding="utf-8").strip()
+        return version or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+def read_build_commit() -> str:
+    try:
+        embedded = (BASE_DIR / "BUILD_COMMIT").read_text(encoding="ascii").strip()
+        if embedded:
+            commit, separator, suffix = embedded.partition(".")
+            short_commit = commit[:8]
+            return f"{short_commit}.{suffix}" if separator and suffix else short_commit
+    except OSError:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+        commit = result.stdout.strip() or "unknown"
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+        return f"{commit}.dirty" if status.stdout.strip() else commit
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+MANUAL_VERSION = read_manual_version()
+BUILD_COMMIT = read_build_commit()
+APP_VERSION = f"{MANUAL_VERSION}+{BUILD_COMMIT}"
+
+
 class RootState:
     def __init__(self, root: Path) -> None:
         self._lock = threading.Lock()
@@ -654,7 +700,12 @@ class ZipTaskManager:
 
 
 def create_app(initial_root: Path) -> FastAPI:
-    app = FastAPI(title="Keil Web File Server", docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="Keil Web File Server",
+        version=APP_VERSION,
+        docs_url=None,
+        redoc_url=None,
+    )
     root_state = RootState(initial_root)
     task_manager = ZipTaskManager()
     access_log = AccessLog()
@@ -669,6 +720,17 @@ def create_app(initial_root: Path) -> FastAPI:
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(index_file)
+
+    @app.get("/api/version")
+    def api_version() -> JSONResponse:
+        return JSONResponse(
+            {
+                "ok": True,
+                "version": APP_VERSION,
+                "manual_version": MANUAL_VERSION,
+                "commit": BUILD_COMMIT,
+            }
+        )
 
     @app.get("/api/list")
     def api_list(
@@ -1250,6 +1312,7 @@ def recover_merged_windows_args(argv: list[str]) -> list[str]:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Keil web file explorer")
+    parser.add_argument("--version", action="version", version=APP_VERSION)
     parser.add_argument(
         "root",
         nargs="?",
@@ -1294,6 +1357,7 @@ def main() -> int:
     host = "0.0.0.0" if args.public else args.host
     local_url = f"http://127.0.0.1:{args.port}/"
 
+    print(f"[INFO] Version: {APP_VERSION}")
     print(f"[INFO] Root directory: {root}")
     print(f"[INFO] Serving on: {host}:{args.port}")
     print(f"[INFO] Local UI: {local_url}")

@@ -47,6 +47,9 @@ jobs:
       - name: Install Python build dependencies
         run: python -m pip install -r requirements-build.txt
 
+      - name: Prepare build metadata
+        run: python scripts/write_build_commit.py build/BUILD_COMMIT --commit $env:GITHUB_SHA
+
       - name: Build executable
         run: >-
           pyinstaller
@@ -58,10 +61,14 @@ jobs:
           --collect-all pydantic
           --collect-all uvicorn
           --add-data "webui-vue\dist;webui-vue/dist"
+          --add-data "VERSION;."
+          --add-data "build\BUILD_COMMIT;."
           keil_web_file_server.py
 
       - name: Verify executable
-        run: .\dist\keil_web_file_server.exe --help
+        run: |
+          .\dist\keil_web_file_server.exe --help
+          .\dist\keil_web_file_server.exe --version
 
       - name: Upload executable
         uses: actions/upload-artifact@v4

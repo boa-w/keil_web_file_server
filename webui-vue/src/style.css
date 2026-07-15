@@ -27,6 +27,18 @@ body {
   padding: 14px;
   box-shadow: 0 8px 24px rgba(0,0,0,.06);
 }
+.app-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.app-heading h1 { margin-bottom: 8px; }
+.version-badge {
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+}
 .page-block { margin-top: 8px; }
 .topbar {
   display: flex;

@@ -87,6 +87,12 @@ build_exe.bat
 `Build Windows EXE` workflow 后，会生成名为 `keil-web-file-server-windows` 的构建产物，
 其中包含 `keil_web_file_server.exe`。
 
+## 版本号
+
+手动版本号维护在根目录 `VERSION`。程序展示的完整版本由手动版本号和构建时的
+Git 短哈希组成，例如 `0.1.0+d69ded8`；本地存在未提交修改时会追加 `.dirty`。
+可运行 `keil_web_file_server.exe --version` 查看 EXE 内嵌版本。
+
 ## Keil Tools Menu 示例
 
 `Project -> Manage -> Configure Tools Menu...`
