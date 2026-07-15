@@ -42,6 +42,9 @@ except ModuleNotFoundError as exc:
 
 TEXT_PREVIEW_LIMIT = 200_000
 BINARY_PREVIEW_LIMIT = 65_536
+MAX_SELECTED_DOWNLOAD_FILES = 200
+MAX_SELECTED_DOWNLOAD_SIZE = 512 * 1024 * 1024
+MAX_REPLACE_FILE_SIZE = 512 * 1024 * 1024
 
 
 def app_base_dir() -> Path:
@@ -71,6 +74,10 @@ class RootState:
 
 class OpenFileRequest(BaseModel):
     path: str
+
+
+class DownloadFilesRequest(BaseModel):
+    paths: list[str]
 
 
 def clean_relpath(value: str) -> str:
@@ -848,6 +855,115 @@ def create_app(initial_root: Path) -> FastAPI:
                     yield chunk
 
         return StreamingResponse(iter_file(), media_type=media_type, headers=headers)
+
+    @app.post("/api/download-selected")
+    def api_download_selected(body: DownloadFilesRequest) -> StreamingResponse:
+        unique_paths = list(dict.fromkeys(body.paths))
+        if not unique_paths:
+            raise HTTPException(status_code=400, detail="no files selected")
+        if len(unique_paths) > MAX_SELECTED_DOWNLOAD_FILES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"select at most {MAX_SELECTED_DOWNLOAD_FILES} files",
+            )
+
+        root_dir = root_state.get()
+        selected: list[tuple[Path, str]] = []
+        total_size = 0
+        for rel_path in unique_paths:
+            target = safe_target(root_dir, rel_path)
+            if not target.exists() or not target.is_file():
+                access_log.add("download-selected", rel_path, target, ok=False)
+                raise HTTPException(
+                    status_code=400, detail=f"file not found: {rel_path}"
+                )
+            total_size += target.stat().st_size
+            if total_size > MAX_SELECTED_DOWNLOAD_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail="selected files exceed the 512 MB limit",
+                )
+            canonical_path = clean_relpath(str(target.relative_to(root_dir)))
+            selected.append((target, canonical_path))
+
+        archive = BytesIO()
+        with zipfile.ZipFile(
+            archive, mode="w", compression=zipfile.ZIP_DEFLATED
+        ) as zf:
+            for target, rel_path in selected:
+                zf.write(target, arcname=rel_path)
+                access_log.add("download-selected", rel_path, target, ok=True)
+        archive.seek(0)
+        headers = {"Content-Disposition": content_disposition("selected-files.zip")}
+        return StreamingResponse(
+            archive, media_type="application/zip", headers=headers
+        )
+
+    @app.put("/api/file")
+    async def api_replace_file(
+        request: Request, path: str = Query(default="")
+    ) -> JSONResponse:
+        client_host = request.client.host if request.client else ""
+        if client_host not in ("127.0.0.1", "::1"):
+            return JSONResponse(
+                {"ok": False, "error": "replacing files is only allowed locally"},
+                status_code=403,
+            )
+
+        root_dir = root_state.get()
+        target = safe_target(root_dir, path)
+        if not target.exists() or not target.is_file():
+            access_log.add("replace", path, target, ok=False)
+            return JSONResponse(
+                {"ok": False, "error": "file not found"}, status_code=404
+            )
+
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_REPLACE_FILE_SIZE:
+                    return JSONResponse(
+                        {"ok": False, "error": "replacement exceeds 512 MB"},
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
+
+        temp_name = f".{target.stem}.{uuid.uuid4().hex}.upload{target.suffix}"
+        temp_path = target.with_name(temp_name)
+        written = 0
+        try:
+            with temp_path.open("xb") as output:
+                async for chunk in request.stream():
+                    written += len(chunk)
+                    if written > MAX_REPLACE_FILE_SIZE:
+                        raise ValueError("replacement exceeds 512 MB")
+                    output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temp_path, target)
+        except ValueError as exc:
+            temp_path.unlink(missing_ok=True)
+            access_log.add("replace", path, target, ok=False)
+            return JSONResponse(
+                {"ok": False, "error": str(exc)}, status_code=413
+            )
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            access_log.add("replace", path, target, ok=False)
+            return JSONResponse(
+                {"ok": False, "error": f"replace failed: {exc}"},
+                status_code=500,
+            )
+
+        access_log.add("replace", path, target, ok=True)
+        return JSONResponse(
+            {
+                "ok": True,
+                "path": clean_relpath(str(target.relative_to(root_dir))),
+                "size_bytes": written,
+            }
+        )
 
     @app.post("/api/open-in-vscode")
     def api_open_in_vscode(body: OpenFileRequest, request: Request) -> JSONResponse:

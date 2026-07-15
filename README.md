@@ -15,6 +15,8 @@
 - Web 端动态切换访问根目录（无需重启）
 - 目录浏览、文本/图片/PDF/二进制(HEX)预览、文件下载
 - 目录列表分页与排序（名称/大小）
+- 文件多选并批量打包下载
+- 从本机上传文件并原子替换现有文件
 - 文件夹打包下载（ZIP）
 - 文件夹异步打包任务队列（创建任务、状态轮询、完成后下载、任务删除）
 - 下载对空格/中文/特殊符号文件名兼容（RFC 5987）
@@ -145,3 +147,5 @@ curl "http://127.0.0.1:8765/api/debug/report?include_all_env=true&modules_limit=
 - `GET /api/debug/modules?limit=400&keyword=keil`：模块列表
 - `GET /api/debug/file-probe?path=相对路径&head=128&tail=128&hash_mode=sample|full`：文件探针（首尾字节+SHA256）
 - `POST /api/open-in-vscode`：在服务器本机的 VS Code 中打开文件，请求体为 `{ "path": "相对路径" }`；仅接受本机请求
+- `POST /api/download-selected`：将请求体 `{ "paths": ["相对路径"] }` 中的文件打包为 ZIP
+- `PUT /api/file?path=相对路径`：用请求体中的原始文件内容替换目标文件；仅接受本机请求

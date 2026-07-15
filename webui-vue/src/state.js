@@ -13,6 +13,8 @@ export const previewEncoding = ref('')
 export const previewSize = ref('')
 export const previewUrl = ref('')
 export const vscodeOpeningPath = ref('')
+export const batchDownloading = ref(false)
+export const replacingPath = ref('')
 
 export const debugText = ref('点击“刷新调试信息”查看运行上下文差异...')
 export const debugIncludeAllEnv = ref(false)
@@ -120,6 +122,65 @@ export async function openInVSCode(path) {
     return false
   } finally {
     vscodeOpeningPath.value = ''
+  }
+}
+
+export async function downloadSelected(paths) {
+  if (!paths.length || batchDownloading.value) return false
+  batchDownloading.value = true
+  try {
+    const res = await fetch('/api/download-selected', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(`下载失败: ${data.detail ?? data.error ?? '未知错误'}`)
+      return false
+    }
+
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'selected-files.zip'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    return true
+  } catch (error) {
+    alert(`下载失败: ${error instanceof Error ? error.message : '请求失败'}`)
+    return false
+  } finally {
+    batchDownloading.value = false
+  }
+}
+
+export async function replaceFile(path, file) {
+  if (!path || !file || replacingPath.value) return false
+  replacingPath.value = path
+  try {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-Upload-Filename': encodeURIComponent(file.name),
+      },
+      body: file,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.ok) {
+      alert(`替换失败: ${data.error ?? data.detail ?? '未知错误'}`)
+      return false
+    }
+    return true
+  } catch (error) {
+    alert(`替换失败: ${error instanceof Error ? error.message : '请求失败'}`)
+    return false
+  } finally {
+    replacingPath.value = ''
   }
 }
 
